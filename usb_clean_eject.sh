@@ -10,7 +10,7 @@
 set -euo pipefail
 
 # ── ESET CLI tool path ───────────────────────────────────────
-ESET_CLI="/Applications/ESET Endpoint Security.app/Contents/MacOS/esets_scan"
+ESET_CLI="/Applications/ESET Endpoint Security.app/Contents/MacOS/odscan"
 
 # ── Discover mounted USB volumes ────────────────────────────
 echo ""
@@ -119,42 +119,94 @@ echo ""
 # ── ESET scan ────────────────────────────────────────────────
 if [[ "$DO_SCAN" == true ]]; then
   echo "🛡️   Starting ESET scan of $USB_PATH ..."
-  echo "    (This may take a while depending on drive size)"
   echo ""
 
   SCAN_LOG="/tmp/eset_usb_scan_$(date +%Y%m%d_%H%M%S).log"
 
-  # --log-file   : save full report
-  # --clean-mode=strict : automatically clean/quarantine threats
-  # --subdir     : scan recursively
-  if "$ESET_CLI" \
-      --log-file="$SCAN_LOG" \
-      --clean-mode=strict \
-      --subdir \
-      "$USB_PATH"; then
-    echo ""
-    echo "✅  ESET scan complete — no threats found."
+  # Launch scan in background so we can poll progress while it runs
+  "$ESET_CLI" --scan --profile="@Smart scan" --profile-priority=idle       --show-scan-info "$USB_PATH" > "$SCAN_LOG" 2>&1 &
+  SCAN_PID=$!
+
+  # Wait up to 3s for session_id to appear in the log
+  SESSION_ID=""
+  for i in 1 2 3 4 5 6; do
+    sleep 0.5
+    SESSION_ID=$(grep -o '"session_id":[^,}]*' "$SCAN_LOG" 2>/dev/null | grep -o '[0-9]*' || true)
+    [[ -n "$SESSION_ID" ]] && break
+  done
+
+  if [[ -z "$SESSION_ID" ]]; then
+    echo "  ⚠️   Could not parse session ID — waiting for scan to finish silently..."
+    wait $SCAN_PID || true
+    SCAN_EXIT=$?
   else
-    EXIT_CODE=$?
+    echo "  Session: $SESSION_ID"
     echo ""
-    # esets_scan exit codes: 0 = clean, 1 = threat found & cleaned, 50+ = error
-    if [[ $EXIT_CODE -eq 1 ]]; then
-      echo "⚠️   ESET found and cleaned threat(s) on the drive."
-    else
-      echo "⚠️   ESET scan finished with warnings (exit code $EXIT_CODE)."
-    fi
-    echo "    Full report saved to: $SCAN_LOG"
-    echo ""
-    read -rp "  Continue with eject anyway? [y/N] " EJECT_ANYWAY
-    if [[ ! "$EJECT_ANYWAY" =~ ^[Yy]$ ]]; then
-      echo "  Aborted. Drive NOT ejected."
-      exit 1
-    fi
+
+    # Poll every second while background process is running
+    while kill -0 $SCAN_PID 2>/dev/null; do
+      LIST=$("$ESET_CLI" --list 2>/dev/null) || true
+
+      COUNT=$(echo "$LIST" | grep -A20 "\"SessionId\":$SESSION_ID" | \
+        grep '"ProgressCount"' | grep -o '[0-9]*' | head -1 || echo "0")
+      TOTAL=$(echo "$LIST" | grep -A20 "\"SessionId\":$SESSION_ID" | \
+        grep '"ProgressCountTotal"' | grep -o '[0-9]*' | head -1 || echo "0")
+      DETECTED=$(echo "$LIST" | grep -A20 "\"SessionId\":$SESSION_ID" | \
+        grep '"DetectedCount"' | grep -o '[0-9]*' | head -1 || echo "0")
+
+      if [[ "$TOTAL" -gt 0 ]]; then
+        PCT=$(( COUNT * 100 / TOTAL ))
+        printf "\r  ⏳  %3d%%  files: %d / %d  threats: %s  " \
+          "$PCT" "$COUNT" "$TOTAL" "$DETECTED"
+      else
+        printf "\r  ⏳  files scanned: %d  threats: %s  " "$COUNT" "$DETECTED"
+      fi
+
+      sleep 1
+    done
+
+    printf "\r%-80s\n" ""  # clear progress line
+    wait $SCAN_PID; SCAN_EXIT=$?
   fi
+
+  case ${SCAN_EXIT:-0} in
+    0)
+      echo "✅  ESET scan complete — no threats found."
+      ;;
+    1)
+      echo "⚠️   ESET found and handled threat(s) on the drive."
+      echo "    Full report: $SCAN_LOG"
+      echo ""
+      read -rp "  Continue with eject anyway? [y/N] " EJECT_ANYWAY
+      [[ ! "$EJECT_ANYWAY" =~ ^[Yy]$ ]] && echo "  Aborted. Drive NOT ejected." && exit 1
+      ;;
+    *)
+      echo "⚠️   ESET scan finished with exit code $SCAN_EXIT."
+      echo "    Full report: $SCAN_LOG"
+      echo ""
+      read -rp "  Continue with eject anyway? [y/N] " EJECT_ANYWAY
+      [[ ! "$EJECT_ANYWAY" =~ ^[Yy]$ ]] && echo "  Aborted. Drive NOT ejected." && exit 1
+      ;;
+  esac
   echo ""
 fi
 
 # ── Eject ───────────────────────────────────────────────────
+# Wait until odfeeder (ESET file feeder) fully releases the volume.
+# Timeout after 30 seconds to avoid hanging forever.
+echo "⏳  Waiting for ESET to release the volume..."
+sleep 2  # give odfeeder a moment to finish before we start polling
+WAIT=0
+while lsof +D "$USB_PATH" 2>/dev/null | grep -q "odfeeder"; do
+  if [[ $WAIT -ge 30 ]]; then
+    echo "  ⚠️   odfeeder still running after 30s — attempting eject anyway."
+    break
+  fi
+  sleep 1
+  (( WAIT++ ))
+done
+[[ $WAIT -gt 0 ]] && echo "  ✔  Released after ${WAIT}s."
+
 echo "⏏️   Ejecting $USB_PATH ..."
 
 if diskutil eject "$USB_PATH" 2>/dev/null; then
