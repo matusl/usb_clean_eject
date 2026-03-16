@@ -2,11 +2,15 @@
 # ============================================================
 # usb_clean_eject.sh
 # Lists mounted USB drives, lets the user pick one,
-# deletes Apple dot files, then ejects the drive.
+# deletes Apple dot files, optionally scans with ESET,
+# then ejects the drive.
 # Usage: ./usb_clean_eject.sh
 # ============================================================
 
 set -euo pipefail
+
+# ── ESET CLI tool path ───────────────────────────────────────
+ESET_CLI="/Applications/ESET Endpoint Security.app/Contents/MacOS/esets_scan"
 
 # ── Discover mounted USB volumes ────────────────────────────
 echo ""
@@ -60,7 +64,18 @@ echo ""
 echo "  ✔  Selected: $USB_PATH"
 echo ""
 
-# ── Confirm ─────────────────────────────────────────────────
+# ── Ask about ESET scan ──────────────────────────────────────
+DO_SCAN=false
+if [[ -f "$ESET_CLI" ]]; then
+  read -rp "  🛡️   Run ESET virus scan before ejecting? [y/N] " SCAN_CHOICE
+  [[ "$SCAN_CHOICE" =~ ^[Yy]$ ]] && DO_SCAN=true
+  echo ""
+else
+  echo "  ℹ️   ESET Endpoint Security not found — skipping scan option."
+  echo ""
+fi
+
+# ── Confirm cleanup + eject ─────────────────────────────────
 read -rp "  ⚠️   Delete Apple dot files and eject this drive? [y/N] " CONFIRM
 if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
   echo "  Aborted."
@@ -69,8 +84,6 @@ fi
 echo ""
 
 # ── Stop Spotlight indexing on this volume ───────────────────
-# This releases the daemon's lock on .Spotlight-V100 and .fseventsd,
-# which would otherwise block both deletion and ejection.
 echo "⏸️   Suspending Spotlight on $USB_PATH ..."
 sudo mdutil -i off "$USB_PATH" > /dev/null 2>&1 && \
   echo "  ✔  Spotlight disabled." || \
@@ -81,11 +94,9 @@ echo ""
 echo "🗑️   Removing Apple dot files from $USB_PATH ..."
 echo ""
 
-# .DS_Store and ._* — regular user-owned files
 find "$USB_PATH" -name ".DS_Store" -type f -print -delete 2>/dev/null || true
 find "$USB_PATH" -name "._*"       -type f -print -delete 2>/dev/null || true
 
-# Protected directories — use sudo
 NEEDS_SUDO=()
 [[ -d "$USB_PATH/.Spotlight-V100" ]] && NEEDS_SUDO+=("$USB_PATH/.Spotlight-V100")
 [[ -d "$USB_PATH/.Trashes"        ]] && NEEDS_SUDO+=("$USB_PATH/.Trashes")
@@ -104,6 +115,44 @@ fi
 
 echo "✅  Apple dot files removed."
 echo ""
+
+# ── ESET scan ────────────────────────────────────────────────
+if [[ "$DO_SCAN" == true ]]; then
+  echo "🛡️   Starting ESET scan of $USB_PATH ..."
+  echo "    (This may take a while depending on drive size)"
+  echo ""
+
+  SCAN_LOG="/tmp/eset_usb_scan_$(date +%Y%m%d_%H%M%S).log"
+
+  # --log-file   : save full report
+  # --clean-mode=strict : automatically clean/quarantine threats
+  # --subdir     : scan recursively
+  if "$ESET_CLI" \
+      --log-file="$SCAN_LOG" \
+      --clean-mode=strict \
+      --subdir \
+      "$USB_PATH"; then
+    echo ""
+    echo "✅  ESET scan complete — no threats found."
+  else
+    EXIT_CODE=$?
+    echo ""
+    # esets_scan exit codes: 0 = clean, 1 = threat found & cleaned, 50+ = error
+    if [[ $EXIT_CODE -eq 1 ]]; then
+      echo "⚠️   ESET found and cleaned threat(s) on the drive."
+    else
+      echo "⚠️   ESET scan finished with warnings (exit code $EXIT_CODE)."
+    fi
+    echo "    Full report saved to: $SCAN_LOG"
+    echo ""
+    read -rp "  Continue with eject anyway? [y/N] " EJECT_ANYWAY
+    if [[ ! "$EJECT_ANYWAY" =~ ^[Yy]$ ]]; then
+      echo "  Aborted. Drive NOT ejected."
+      exit 1
+    fi
+  fi
+  echo ""
+fi
 
 # ── Eject ───────────────────────────────────────────────────
 echo "⏏️   Ejecting $USB_PATH ..."
