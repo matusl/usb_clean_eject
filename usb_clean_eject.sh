@@ -61,49 +61,56 @@ echo "  ✔  Selected: $USB_PATH"
 echo ""
 
 # ── Confirm ─────────────────────────────────────────────────
-read -rp "  ⚠️   Delete Apple dot files and eject this drive? [y/N] " CONFIRM
-if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
-  echo "  Aborted."
-  exit 0
+read -rp "  🗑️   Delete Apple dot files before ejecting? [y/N] " CONFIRM
+DO_CLEAN=false
+if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
+  DO_CLEAN=true
+else
+  read -rp "  ⏏️   Skip cleaning and just eject? [y/N] " EJECT_ONLY
+  if [[ ! "$EJECT_ONLY" =~ ^[Yy]$ ]]; then
+    echo "  Aborted."
+    exit 0
+  fi
 fi
 echo ""
 
-# ── Stop Spotlight indexing on this volume ───────────────────
-# This releases the daemon's lock on .Spotlight-V100 and .fseventsd,
-# which would otherwise block both deletion and ejection.
-echo "⏸️   Suspending Spotlight on $USB_PATH ..."
-sudo mdutil -i off "$USB_PATH" > /dev/null 2>&1 && \
-  echo "  ✔  Spotlight disabled." || \
-  echo "  ⚠️   Could not disable Spotlight (continuing)."
-echo ""
+# ── Clean dot files (if requested) ──────────────────────────
+if [[ "$DO_CLEAN" == true ]]; then
 
-# ── Delete Apple dot files ──────────────────────────────────
-echo "🗑️   Removing Apple dot files from $USB_PATH ..."
-echo ""
-
-# .DS_Store and ._* — regular user-owned files
-find "$USB_PATH" -name ".DS_Store" -type f -print -delete 2>/dev/null || true
-find "$USB_PATH" -name "._*"       -type f -print -delete 2>/dev/null || true
-
-# Protected directories — use sudo
-NEEDS_SUDO=()
-[[ -d "$USB_PATH/.Spotlight-V100" ]] && NEEDS_SUDO+=("$USB_PATH/.Spotlight-V100")
-[[ -d "$USB_PATH/.Trashes"        ]] && NEEDS_SUDO+=("$USB_PATH/.Trashes")
-[[ -d "$USB_PATH/.fseventsd"      ]] && NEEDS_SUDO+=("$USB_PATH/.fseventsd")
-
-if [[ ${#NEEDS_SUDO[@]} -gt 0 ]]; then
-  for d in "${NEEDS_SUDO[@]}"; do
-    if sudo rm -rf "$d" 2>/dev/null; then
-      echo "  ✔  Removed: $d"
-    else
-      echo "  ⚠️   Skipped (still locked): $d"
-    fi
-  done
+  # ── Stop Spotlight indexing on this volume ─────────────────
+  echo "⏸️   Suspending Spotlight on $USB_PATH ..."
+  sudo mdutil -i off "$USB_PATH" > /dev/null 2>&1 && \
+    echo "  ✔  Spotlight disabled." || \
+    echo "  ⚠️   Could not disable Spotlight (continuing)."
   echo ""
-fi
 
-echo "✅  Apple dot files removed."
-echo ""
+  # ── Delete Apple dot files ────────────────────────────────
+  echo "🗑️   Removing Apple dot files from $USB_PATH ..."
+  echo ""
+
+  find "$USB_PATH" -name ".DS_Store" -type f -print -delete 2>/dev/null || true
+  find "$USB_PATH" -name "._*"       -type f -print -delete 2>/dev/null || true
+
+  NEEDS_SUDO=()
+  [[ -d "$USB_PATH/.Spotlight-V100" ]] && NEEDS_SUDO+=("$USB_PATH/.Spotlight-V100")
+  [[ -d "$USB_PATH/.Trashes"        ]] && NEEDS_SUDO+=("$USB_PATH/.Trashes")
+  [[ -d "$USB_PATH/.fseventsd"      ]] && NEEDS_SUDO+=("$USB_PATH/.fseventsd")
+
+  if [[ ${#NEEDS_SUDO[@]} -gt 0 ]]; then
+    for d in "${NEEDS_SUDO[@]}"; do
+      if sudo rm -rf "$d" 2>/dev/null; then
+        echo "  ✔  Removed: $d"
+      else
+        echo "  ⚠️   Skipped (still locked): $d"
+      fi
+    done
+    echo ""
+  fi
+
+  echo "✅  Apple dot files removed."
+  echo ""
+
+fi # DO_CLEAN
 
 # ── Eject ───────────────────────────────────────────────────
 echo "⏏️   Ejecting $USB_PATH ..."
