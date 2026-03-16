@@ -76,12 +76,21 @@ else
 fi
 
 # ── Confirm cleanup + eject ─────────────────────────────────
-read -rp "  ⚠️   Delete Apple dot files and eject this drive? [y/N] " CONFIRM
-if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
-  echo "  Aborted."
-  exit 0
+read -rp "  🗑️   Delete Apple dot files before ejecting? [y/N] " CONFIRM
+DO_CLEAN=false
+if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
+  DO_CLEAN=true
+else
+  read -rp "  ⏏️   Skip cleaning and just eject? [y/N] " EJECT_ONLY
+  if [[ ! "$EJECT_ONLY" =~ ^[Yy]$ ]]; then
+    echo "  Aborted."
+    exit 0
+  fi
 fi
 echo ""
+
+# ── Clean dot files (if requested) ─────────────────────────
+if [[ "$DO_CLEAN" == true ]]; then
 
 # ── Stop Spotlight indexing on this volume ───────────────────
 echo "⏸️   Suspending Spotlight on $USB_PATH ..."
@@ -115,6 +124,8 @@ fi
 
 echo "✅  Apple dot files removed."
 echo ""
+
+fi # DO_CLEAN
 
 # ── ESET scan ────────────────────────────────────────────────
 if [[ "$DO_SCAN" == true ]]; then
