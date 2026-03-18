@@ -204,19 +204,21 @@ fi
 
 # ── Eject ───────────────────────────────────────────────────
 # Wait until odfeeder (ESET file feeder) fully releases the volume.
-# Timeout after 30 seconds to avoid hanging forever.
-echo "⏳  Waiting for ESET to release the volume..."
-sleep 2  # give odfeeder a moment to finish before we start polling
-WAIT=0
-while lsof +D "$USB_PATH" 2>/dev/null | grep -q "odfeeder"; do
-  if [[ $WAIT -ge 30 ]]; then
-    echo "  ⚠️   odfeeder still running after 30s — attempting eject anyway."
-    break
-  fi
-  sleep 1
-  (( WAIT++ ))
-done
-[[ $WAIT -gt 0 ]] && echo "  ✔  Released after ${WAIT}s."
+# Only needed if a scan was actually performed.
+if [[ "$DO_SCAN" == true ]]; then
+  echo "⏳  Waiting for ESET to release the volume..."
+  sleep 5  # give odfeeder a moment to finish before we start polling
+  WAIT=0
+  while lsof +D "$USB_PATH" 2>/dev/null | grep -q "odfeeder"; do
+    if [[ $WAIT -ge 30 ]]; then
+      echo "  ⚠️   odfeeder still running after 30s — attempting eject anyway."
+      break
+    fi
+    sleep 1
+    (( WAIT++ ))
+  done
+  [[ $WAIT -gt 0 ]] && echo "  ✔  Released after ${WAIT}s."
+fi
 
 echo "⏏️   Ejecting $USB_PATH ..."
 
