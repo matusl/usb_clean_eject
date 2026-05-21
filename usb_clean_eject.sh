@@ -119,17 +119,51 @@ fi # DO_CLEAN
 # ── Eject ───────────────────────────────────────────────────
 echo "⏏️   Ejecting $USB_PATH ..."
 
+# Resolve the BSD whole-disk node (e.g. /dev/disk2) for the mount point.
+_disk_node() {
+  diskutil info "$USB_PATH" 2>/dev/null \
+    | awk -F': +' '/Part of Whole/ { print "/dev/" $2 }' \
+    | head -1
+}
+
 _try_eject() {
+  local disk
+  disk=$(_disk_node)
+
+  # 1. diskutil eject on the mount point
   if diskutil eject "$USB_PATH" 2>/dev/null; then
     echo "✅  USB stick ejected safely. You can unplug it now."
     return 0
   fi
-  echo "⚠️   diskutil eject failed. Trying hdiutil detach..."
-  if hdiutil detach "$USB_PATH" 2>/dev/null; then
+
+  # 2. Force-unmount all partitions, then eject the whole disk
+  if [[ -n "$disk" ]]; then
+    echo "⚠️   diskutil eject failed. Trying force-unmount + eject on $disk..."
+    diskutil unmountDisk force "$disk" 2>/dev/null || true
+    if diskutil eject "$disk" 2>/dev/null; then
+      echo "✅  USB stick ejected safely. You can unplug it now."
+      return 0
+    fi
+  fi
+
+  # 3. hdiutil detach as last resort
+  echo "⚠️   Trying hdiutil detach..."
+  local target="${disk:-$USB_PATH}"
+  if hdiutil detach "$target" -force 2>/dev/null; then
     echo "✅  Ejected via hdiutil."
     return 0
   fi
+
   return 1
+}
+
+_show_lsof() {
+  local procs
+  procs=$(lsof +D "$USB_PATH" 2>/dev/null | awk 'NR>1 {print "    " $1 " (pid " $2 ")"}' | sort -u)
+  if [[ -n "$procs" ]]; then
+    echo "  Processes holding the volume open:"
+    echo "$procs"
+  fi
 }
 
 if ! _try_eject; then
@@ -140,15 +174,15 @@ if ! _try_eject; then
     _try_eject || {
       echo ""
       echo "❌  Could not eject automatically."
-      echo "    Try: lsof +D \"$USB_PATH\" to find what's keeping it open,"
-      echo "    then close that process and eject manually from Finder."
+      _show_lsof
+      echo "    Close those processes and eject manually from Finder."
       exit 1
     }
   else
     echo ""
     echo "❌  Could not eject automatically."
-    echo "    Try: lsof +D \"$USB_PATH\" to find what's keeping it open,"
-    echo "    then close that process and eject manually from Finder."
+    _show_lsof
+    echo "    Close those processes and eject manually from Finder."
     exit 1
   fi
 fi
