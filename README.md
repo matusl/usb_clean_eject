@@ -5,15 +5,16 @@ A macOS shell script that removes Apple junk files from a USB drive and safely e
 ## Features
 
 - Auto-detects all mounted external USB drives
-- Interactive numbered picker — no need to type volume paths
-- Removes all Apple dot files:
+- Auto-selects the drive if only one is plugged in; numbered picker otherwise
+- Optionally removes Apple dot files:
   - `.DS_Store` — Finder folder metadata
   - `._*` — AppleDouble resource forks
   - `.Spotlight-V100` — Spotlight index
   - `.Trashes` — macOS Trash folder
   - `.fseventsd` — File system events log
 - Disables Spotlight indexing before deletion to release daemon locks
-- Safely ejects the drive after cleaning
+- Handles Time Machine volumes — stops the backup automatically if it's blocking eject
+- Safely ejects the drive (falls back to `hdiutil detach` if needed)
 - Adds a `usb_eject` alias to `~/.zshrc` on first run
 
 ## Requirements
@@ -47,6 +48,29 @@ usb_eject
 
 ## Usage
 
+**Single drive plugged in — auto-selected:**
+
+```
+🔍  Scanning for mounted USB drives...
+
+  Auto-selected:  /Volumes/SANDISK                14.9 GB
+
+  ✔  Selected: /Volumes/SANDISK
+
+  🗑️   Delete Apple dot files before ejecting? [y/N] y
+
+⏸️   Suspending Spotlight on /Volumes/SANDISK ...
+  ✔  Spotlight disabled.
+
+🗑️   Removing Apple dot files from /Volumes/SANDISK ...
+✅  Apple dot files removed.
+
+⏏️   Ejecting /Volumes/SANDISK ...
+✅  USB stick ejected safely. You can unplug it now.
+```
+
+**Multiple drives — numbered picker:**
+
 ```
 🔍  Scanning for mounted USB drives...
 
@@ -59,7 +83,11 @@ usb_eject
 
   ✔  Selected: /Volumes/SANDISK
 
-  ⚠️   Delete Apple dot files and eject this drive? [y/N] y
+  🗑️   Delete Apple dot files before ejecting? [y/N] n
+  ⏏️   Skip cleaning and just eject? [y/N] y
+
+⏏️   Ejecting /Volumes/SANDISK ...
+✅  USB stick ejected safely. You can unplug it now.
 ```
 
 ## License
