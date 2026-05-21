@@ -37,28 +37,32 @@ if [[ ${#USB_VOLUMES[@]} -eq 0 ]]; then
   exit 1
 fi
 
-# ── Print numbered list ─────────────────────────────────────
-echo "  Found USB drive(s):"
-echo ""
-for i in "${!USB_VOLUMES[@]}"; do
-  VOL="${USB_VOLUMES[$i]}"
-  SIZE=$(diskutil info "$VOL" 2>/dev/null | awk -F': +' '/Disk Size/ { print $2 }' | grep -oE '[0-9.]+ [KMGT]B' | head -1 || echo "?")
-  printf "  [%d] %-35s %s\n" "$((i+1))" "$VOL" "$SIZE"
-done
-echo ""
-
-# ── User picks ──────────────────────────────────────────────
-while true; do
-  read -rp "  Enter number of the drive to clean & eject (or q to quit): " CHOICE
-  [[ "$CHOICE" == "q" || "$CHOICE" == "Q" ]] && echo "  Aborted." && exit 0
-  if [[ "$CHOICE" =~ ^[0-9]+$ ]] && \
-     [[ "$CHOICE" -ge 1 ]] && \
-     [[ "$CHOICE" -le "${#USB_VOLUMES[@]}" ]]; then
-    USB_PATH="${USB_VOLUMES[$((CHOICE-1))]}"
-    break
-  fi
-  echo "  ⚠️   Invalid choice. Please enter a number between 1 and ${#USB_VOLUMES[@]}."
-done
+# ── Print list / pick ────────────────────────────────────────
+if [[ ${#USB_VOLUMES[@]} -eq 1 ]]; then
+  USB_PATH="${USB_VOLUMES[0]}"
+  SIZE=$(diskutil info "$USB_PATH" 2>/dev/null | awk -F': +' '/Disk Size/ { print $2 }' | grep -oE '[0-9.]+ [KMGT]B' | head -1 || echo "?")
+  printf "  Auto-selected:  %-35s %s\n" "$USB_PATH" "$SIZE"
+else
+  echo "  Found USB drive(s):"
+  echo ""
+  for i in "${!USB_VOLUMES[@]}"; do
+    VOL="${USB_VOLUMES[$i]}"
+    SIZE=$(diskutil info "$VOL" 2>/dev/null | awk -F': +' '/Disk Size/ { print $2 }' | grep -oE '[0-9.]+ [KMGT]B' | head -1 || echo "?")
+    printf "  [%d] %-35s %s\n" "$((i+1))" "$VOL" "$SIZE"
+  done
+  echo ""
+  while true; do
+    read -rp "  Enter number of the drive to clean & eject (or q to quit): " CHOICE
+    [[ "$CHOICE" == "q" || "$CHOICE" == "Q" ]] && echo "  Aborted." && exit 0
+    if [[ "$CHOICE" =~ ^[0-9]+$ ]] && \
+       [[ "$CHOICE" -ge 1 ]] && \
+       [[ "$CHOICE" -le "${#USB_VOLUMES[@]}" ]]; then
+      USB_PATH="${USB_VOLUMES[$((CHOICE-1))]}"
+      break
+    fi
+    echo "  ⚠️   Invalid choice. Please enter a number between 1 and ${#USB_VOLUMES[@]}."
+  done
+fi
 
 echo ""
 echo "  ✔  Selected: $USB_PATH"
@@ -92,38 +96,38 @@ echo ""
 # ── Clean dot files (if requested) ─────────────────────────
 if [[ "$DO_CLEAN" == true ]]; then
 
-# ── Stop Spotlight indexing on this volume ───────────────────
-echo "⏸️   Suspending Spotlight on $USB_PATH ..."
-sudo mdutil -i off "$USB_PATH" > /dev/null 2>&1 && \
-  echo "  ✔  Spotlight disabled." || \
-  echo "  ⚠️   Could not disable Spotlight (continuing)."
-echo ""
-
-# ── Delete Apple dot files ──────────────────────────────────
-echo "🗑️   Removing Apple dot files from $USB_PATH ..."
-echo ""
-
-find "$USB_PATH" -name ".DS_Store" -type f -print -delete 2>/dev/null || true
-find "$USB_PATH" -name "._*"       -type f -print -delete 2>/dev/null || true
-
-NEEDS_SUDO=()
-[[ -d "$USB_PATH/.Spotlight-V100" ]] && NEEDS_SUDO+=("$USB_PATH/.Spotlight-V100")
-[[ -d "$USB_PATH/.Trashes"        ]] && NEEDS_SUDO+=("$USB_PATH/.Trashes")
-[[ -d "$USB_PATH/.fseventsd"      ]] && NEEDS_SUDO+=("$USB_PATH/.fseventsd")
-
-if [[ ${#NEEDS_SUDO[@]} -gt 0 ]]; then
-  for d in "${NEEDS_SUDO[@]}"; do
-    if sudo rm -rf "$d" 2>/dev/null; then
-      echo "  ✔  Removed: $d"
-    else
-      echo "  ⚠️   Skipped (still locked): $d"
-    fi
-  done
+  # ── Stop Spotlight indexing on this volume ─────────────────
+  echo "⏸️   Suspending Spotlight on $USB_PATH ..."
+  sudo mdutil -i off "$USB_PATH" > /dev/null 2>&1 && \
+    echo "  ✔  Spotlight disabled." || \
+    echo "  ⚠️   Could not disable Spotlight (continuing)."
   echo ""
-fi
 
-echo "✅  Apple dot files removed."
-echo ""
+  # ── Delete Apple dot files ────────────────────────────────
+  echo "🗑️   Removing Apple dot files from $USB_PATH ..."
+  echo ""
+
+  find "$USB_PATH" -name ".DS_Store" -type f -print -delete 2>/dev/null || true
+  find "$USB_PATH" -name "._*"       -type f -print -delete 2>/dev/null || true
+
+  NEEDS_SUDO=()
+  [[ -d "$USB_PATH/.Spotlight-V100" ]] && NEEDS_SUDO+=("$USB_PATH/.Spotlight-V100")
+  [[ -d "$USB_PATH/.Trashes"        ]] && NEEDS_SUDO+=("$USB_PATH/.Trashes")
+  [[ -d "$USB_PATH/.fseventsd"      ]] && NEEDS_SUDO+=("$USB_PATH/.fseventsd")
+
+  if [[ ${#NEEDS_SUDO[@]} -gt 0 ]]; then
+    for d in "${NEEDS_SUDO[@]}"; do
+      if sudo rm -rf "$d" 2>/dev/null; then
+        echo "  ✔  Removed: $d"
+      else
+        echo "  ⚠️   Skipped (still locked): $d"
+      fi
+    done
+    echo ""
+  fi
+
+  echo "✅  Apple dot files removed."
+  echo ""
 
 fi # DO_CLEAN
 
@@ -135,7 +139,7 @@ if [[ "$DO_SCAN" == true ]]; then
   SCAN_LOG="/tmp/eset_usb_scan_$(date +%Y%m%d_%H%M%S).log"
 
   # Launch scan in background so we can poll progress while it runs
-  "$ESET_CLI" --scan --profile="@Smart scan" --profile-priority=idle       --show-scan-info "$USB_PATH" > "$SCAN_LOG" 2>&1 &
+  "$ESET_CLI" --scan --profile="@Smart scan" --profile-priority=idle --show-scan-info "$USB_PATH" > "$SCAN_LOG" 2>&1 &
   SCAN_PID=$!
 
   # Wait up to 3s for session_id to appear in the log
@@ -148,8 +152,7 @@ if [[ "$DO_SCAN" == true ]]; then
 
   if [[ -z "$SESSION_ID" ]]; then
     echo "  ⚠️   Could not parse session ID — waiting for scan to finish silently..."
-    wait $SCAN_PID || true
-    SCAN_EXIT=$?
+    SCAN_EXIT=0; wait $SCAN_PID || SCAN_EXIT=$?
   else
     echo "  Session: $SESSION_ID"
     echo ""
@@ -177,12 +180,13 @@ if [[ "$DO_SCAN" == true ]]; then
     done
 
     printf "\r%-80s\n" ""  # clear progress line
-    wait $SCAN_PID; SCAN_EXIT=$?
+    SCAN_EXIT=0; wait $SCAN_PID || SCAN_EXIT=$?
   fi
 
   case ${SCAN_EXIT:-0} in
     0)
       echo "✅  ESET scan complete — no threats found."
+      rm -f "$SCAN_LOG"
       ;;
     1)
       echo "⚠️   ESET found and handled threat(s) on the drive."
@@ -215,7 +219,7 @@ if [[ "$DO_SCAN" == true ]]; then
       break
     fi
     sleep 1
-    (( WAIT++ ))
+    (( ++WAIT ))
   done
   [[ $WAIT -gt 0 ]] && echo "  ✔  Released after ${WAIT}s."
 fi
