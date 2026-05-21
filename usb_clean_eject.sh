@@ -33,28 +33,32 @@ if [[ ${#USB_VOLUMES[@]} -eq 0 ]]; then
   exit 1
 fi
 
-# ── Print numbered list ─────────────────────────────────────
-echo "  Found USB drive(s):"
-echo ""
-for i in "${!USB_VOLUMES[@]}"; do
-  VOL="${USB_VOLUMES[$i]}"
-  SIZE=$(diskutil info "$VOL" 2>/dev/null | awk -F': +' '/Disk Size/ { print $2 }' | grep -oE '[0-9.]+ [KMGT]B' | head -1 || echo "?")
-  printf "  [%d] %-35s %s\n" "$((i+1))" "$VOL" "$SIZE"
-done
-echo ""
-
-# ── User picks ──────────────────────────────────────────────
-while true; do
-  read -rp "  Enter number of the drive to clean & eject (or q to quit): " CHOICE
-  [[ "$CHOICE" == "q" || "$CHOICE" == "Q" ]] && echo "  Aborted." && exit 0
-  if [[ "$CHOICE" =~ ^[0-9]+$ ]] && \
-     [[ "$CHOICE" -ge 1 ]] && \
-     [[ "$CHOICE" -le "${#USB_VOLUMES[@]}" ]]; then
-    USB_PATH="${USB_VOLUMES[$((CHOICE-1))]}"
-    break
-  fi
-  echo "  ⚠️   Invalid choice. Please enter a number between 1 and ${#USB_VOLUMES[@]}."
-done
+# ── Print list / pick ────────────────────────────────────────
+if [[ ${#USB_VOLUMES[@]} -eq 1 ]]; then
+  USB_PATH="${USB_VOLUMES[0]}"
+  SIZE=$(diskutil info "$USB_PATH" 2>/dev/null | awk -F': +' '/Disk Size/ { print $2 }' | grep -oE '[0-9.]+ [KMGT]B' | head -1 || echo "?")
+  printf "  Auto-selected:  %-35s %s\n" "$USB_PATH" "$SIZE"
+else
+  echo "  Found USB drive(s):"
+  echo ""
+  for i in "${!USB_VOLUMES[@]}"; do
+    VOL="${USB_VOLUMES[$i]}"
+    SIZE=$(diskutil info "$VOL" 2>/dev/null | awk -F': +' '/Disk Size/ { print $2 }' | grep -oE '[0-9.]+ [KMGT]B' | head -1 || echo "?")
+    printf "  [%d] %-35s %s\n" "$((i+1))" "$VOL" "$SIZE"
+  done
+  echo ""
+  while true; do
+    read -rp "  Enter number of the drive to clean & eject (or q to quit): " CHOICE
+    [[ "$CHOICE" == "q" || "$CHOICE" == "Q" ]] && echo "  Aborted." && exit 0
+    if [[ "$CHOICE" =~ ^[0-9]+$ ]] && \
+       [[ "$CHOICE" -ge 1 ]] && \
+       [[ "$CHOICE" -le "${#USB_VOLUMES[@]}" ]]; then
+      USB_PATH="${USB_VOLUMES[$((CHOICE-1))]}"
+      break
+    fi
+    echo "  ⚠️   Invalid choice. Please enter a number between 1 and ${#USB_VOLUMES[@]}."
+  done
+fi
 
 echo ""
 echo "  ✔  Selected: $USB_PATH"
