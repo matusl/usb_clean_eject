@@ -115,12 +115,31 @@ fi # DO_CLEAN
 # ── Eject ───────────────────────────────────────────────────
 echo "⏏️   Ejecting $USB_PATH ..."
 
-if diskutil eject "$USB_PATH" 2>/dev/null; then
-  echo "✅  USB stick ejected safely. You can unplug it now."
-else
+_try_eject() {
+  if diskutil eject "$USB_PATH" 2>/dev/null; then
+    echo "✅  USB stick ejected safely. You can unplug it now."
+    return 0
+  fi
   echo "⚠️   diskutil eject failed. Trying hdiutil detach..."
   if hdiutil detach "$USB_PATH" 2>/dev/null; then
     echo "✅  Ejected via hdiutil."
+    return 0
+  fi
+  return 1
+}
+
+if ! _try_eject; then
+  if lsof +D "$USB_PATH" 2>/dev/null | grep -q backupd; then
+    echo "⚠️   Time Machine is holding the disk. Stopping backup..."
+    tmutil stopbackup 2>/dev/null || true
+    sleep 3
+    _try_eject || {
+      echo ""
+      echo "❌  Could not eject automatically."
+      echo "    Try: lsof +D \"$USB_PATH\" to find what's keeping it open,"
+      echo "    then close that process and eject manually from Finder."
+      exit 1
+    }
   else
     echo ""
     echo "❌  Could not eject automatically."
