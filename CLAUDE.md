@@ -29,15 +29,17 @@ There are no automated tests. Test interactively with a real USB drive, or a moc
 3. **ESET prompt** — only offered if `odscan` exists at `$ESET_CLI` (inside `ESET Endpoint Security.app`).
 4. **Clean prompt** — "delete dot files?"; if no, a second prompt "just eject?"; if no again, abort.
 5. **Clean** (optional) — `find … -delete` for user-owned `.DS_Store` / `._*` only. Root-owned `.Spotlight-V100`, `.Trashes`, `.fseventsd` are intentionally left in place (removing them needs `sudo`).
-6. **ESET scan** (optional) — runs `odscan --scan --profile="@Smart scan"` in the background logging to `/tmp/eset_usb_scan_*.log`, parses `session_id` from that log, then polls `odscan --list` each second for `ProgressCount` / `ProgressCountTotal` / `DetectedCount` of that session. Exit code 0 = clean (log deleted); 1 = threats handled; anything else = error. Non-zero codes keep the log and ask before ejecting.
-7. **Wait for ESET release** — only if a scan ran: sleep 5s, then poll `lsof +D` for `odfeeder` for up to 30s.
-8. **Eject** (`_try_eject`) — `diskutil eject <mountpoint>` → `diskutil unmountDisk force` + `diskutil eject` on the whole-disk node (from `Part of Whole`) → `hdiutil detach -force`. If all fail and `backupd` holds the volume, runs `tmutil stopbackup` and retries once; otherwise lists holding processes via `lsof` and exits 1.
+6. **ESET scan** (optional) — runs `odscan --scan --profile="@Smart scan"` in the background logging to `/tmp/eset_usb_scan_*.log`, parses `session_id` from that log, then polls `odscan --list` each second for `ProgressCount` / `ProgressCountTotal` / `DetectedCount` of that session. Exit code 0 = clean (log deleted); 1 = threats handled; anything else = error. Non-zero codes keep the log and ask before ejecting. While the scan runs, `_stop_scan` is trapped on EXIT/INT/TERM: it calls `odscan --stop=<session>` and kills the background process (background jobs ignore SIGINT, so Ctrl-C alone would leave the scan running and holding the volume).
+7. **Wait for ESET release** — only if a scan ran: sleep 5s, then poll `lsof <mountpoint>` for `odfeeder` for up to 30s.
+8. **Eject** — `DISK` (whole-disk node from `Part of Whole`) is resolved up front. `_try_eject` is non-forcing: `diskutil eject <mountpoint>` → `diskutil unmountDisk` + `diskutil eject` on `DISK`. If that fails and `backupd` holds the volume, runs `tmutil stopbackup` and retries once. If still busy, lists holders (`_holders`) and asks before `_force_eject` (`unmountDisk force` + eject → `hdiutil detach -force`); declining exits 1.
 9. **Alias** — appends `alias usb_eject='bash <abs-path>'` to `~/.zshrc` if not present.
 
 ## Conventions to preserve
 
 - `set -euo pipefail` is intentional. Any command that may legitimately fail (grep with no match, `diskutil`, `wait` on a non-zero child) must be guarded with `|| true`, `|| echo default`, or the `VAR=0; cmd || VAR=$?` pattern used for `SCAN_EXIT`. Use `(( ++WAIT ))`, not `(( WAIT++ ))` (the latter returns 1 when WAIT is 0 and kills the script).
 - Don't reintroduce `sudo` (including `mdutil`); the user chose to skip root-owned folders rather than be prompted for a password.
+- Never force-unmount without the confirmation prompt — forcing can lose unsaved data and unmounts every partition on the disk.
+- Use `lsof <mountpoint>`, not `lsof +D` (recursive, takes seconds on large drives). `lsof` exits 1 when nothing is open, so guard it under `pipefail`.
 - The two-prompt clean/eject-only design is deliberate — don't collapse it into one prompt.
 - `diskutil info` output is parsed with `awk -F': +'`; keep that field separator when editing those lines.
 - The odfeeder wait must remain conditional on `DO_SCAN` (it was intentionally removed from the no-scan path).

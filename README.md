@@ -23,7 +23,8 @@ A macOS shell script that removes Apple junk files from a USB drive, optionally 
   - Runs in background with live progress display
   - Waits for ESET to fully release the volume before ejecting
   - Prompts to confirm eject if threats are found
-- Safely ejects the drive (falls back to `hdiutil detach` if needed)
+  - Ctrl-C during the scan stops ESET too, so it doesn't keep holding the drive
+- Safely ejects the drive; if something still has files open, shows which apps and asks before force-ejecting
 - Adds a `usb_eject` alias to `~/.zshrc` on first run
 
 ## Requirements
