@@ -96,36 +96,16 @@ echo ""
 # ── Clean dot files (if requested) ─────────────────────────
 if [[ "$DO_CLEAN" == true ]]; then
 
-  # ── Stop Spotlight indexing on this volume ─────────────────
-  echo "⏸️   Suspending Spotlight on $USB_PATH ..."
-  sudo mdutil -i off "$USB_PATH" > /dev/null 2>&1 && \
-    echo "  ✔  Spotlight disabled." || \
-    echo "  ⚠️   Could not disable Spotlight (continuing)."
-  echo ""
-
   # ── Delete Apple dot files ────────────────────────────────
+  # Only user-owned files; root-owned system folders (.Spotlight-V100,
+  # .Trashes, .fseventsd) are left alone so no sudo is needed.
   echo "🗑️   Removing Apple dot files from $USB_PATH ..."
   echo ""
 
   find "$USB_PATH" -name ".DS_Store" -type f -print -delete 2>/dev/null || true
   find "$USB_PATH" -name "._*"       -type f -print -delete 2>/dev/null || true
 
-  NEEDS_SUDO=()
-  [[ -d "$USB_PATH/.Spotlight-V100" ]] && NEEDS_SUDO+=("$USB_PATH/.Spotlight-V100")
-  [[ -d "$USB_PATH/.Trashes"        ]] && NEEDS_SUDO+=("$USB_PATH/.Trashes")
-  [[ -d "$USB_PATH/.fseventsd"      ]] && NEEDS_SUDO+=("$USB_PATH/.fseventsd")
-
-  if [[ ${#NEEDS_SUDO[@]} -gt 0 ]]; then
-    for d in "${NEEDS_SUDO[@]}"; do
-      if sudo rm -rf "$d" 2>/dev/null; then
-        echo "  ✔  Removed: $d"
-      else
-        echo "  ⚠️   Skipped (still locked): $d"
-      fi
-    done
-    echo ""
-  fi
-
+  echo ""
   echo "✅  Apple dot files removed."
   echo ""
 
