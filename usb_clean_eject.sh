@@ -99,37 +99,49 @@ fi # DO_CLEAN
 # ── Eject ───────────────────────────────────────────────────
 echo "⏏️   Ejecting $USB_PATH ..."
 
-# Resolve the BSD whole-disk node (e.g. /dev/disk2) for the mount point.
-_disk_node() {
-  diskutil info "$USB_PATH" 2>/dev/null \
-    | awk -F': +' '/Part of Whole/ { print "/dev/" $2 }' \
-    | head -1
+# Resolve the BSD whole-disk node (e.g. /dev/disk2) now, while still mounted.
+DISK=$(diskutil info "$USB_PATH" 2>/dev/null \
+  | awk -F': +' '/Part of Whole/ { print "/dev/" $2 }' \
+  | head -1 || true)
+
+# Processes with files open on the volume. lsof given a mount point lists
+# everything open on that file system (much faster than a recursive +D).
+_holders() {
+  lsof "$USB_PATH" 2>/dev/null | awk 'NR>1 {print $1 " (pid " $2 ")"}' | sort -u || true
 }
 
+# Safe eject: never forces, so open files are not cut off.
 _try_eject() {
-  local disk
-  disk=$(_disk_node)
-
   # 1. diskutil eject on the mount point
   if diskutil eject "$USB_PATH" 2>/dev/null; then
     echo "✅  USB stick ejected safely. You can unplug it now."
     return 0
   fi
 
-  # 2. Force-unmount all partitions, then eject the whole disk
-  if [[ -n "$disk" ]]; then
-    echo "⚠️   diskutil eject failed. Trying force-unmount + eject on $disk..."
-    diskutil unmountDisk force "$disk" 2>/dev/null || true
-    if diskutil eject "$disk" 2>/dev/null; then
+  # 2. Unmount all partitions, then eject the whole disk
+  if [[ -n "$DISK" ]]; then
+    echo "⚠️   diskutil eject failed. Trying unmount + eject on $DISK..."
+    if diskutil unmountDisk "$DISK" 2>/dev/null && diskutil eject "$DISK" 2>/dev/null; then
       echo "✅  USB stick ejected safely. You can unplug it now."
       return 0
     fi
   fi
 
-  # 3. hdiutil detach as last resort
+  return 1
+}
+
+# Forced eject: only after the user confirms.
+_force_eject() {
+  if [[ -n "$DISK" ]]; then
+    diskutil unmountDisk force "$DISK" 2>/dev/null || true
+    if diskutil eject "$DISK" 2>/dev/null; then
+      echo "✅  USB stick force-ejected. You can unplug it now."
+      return 0
+    fi
+  fi
+
   echo "⚠️   Trying hdiutil detach..."
-  local target="${disk:-$USB_PATH}"
-  if hdiutil detach "$target" -force 2>/dev/null; then
+  if hdiutil detach "${DISK:-$USB_PATH}" -force 2>/dev/null; then
     echo "✅  Ejected via hdiutil."
     return 0
   fi
@@ -137,34 +149,39 @@ _try_eject() {
   return 1
 }
 
-_show_lsof() {
-  local procs
-  procs=$(lsof +D "$USB_PATH" 2>/dev/null | awk 'NR>1 {print "    " $1 " (pid " $2 ")"}' | sort -u)
-  if [[ -n "$procs" ]]; then
-    echo "  Processes holding the volume open:"
-    echo "$procs"
-  fi
-}
+EJECTED=false
+_try_eject && EJECTED=true
 
-if ! _try_eject; then
-  if lsof +D "$USB_PATH" 2>/dev/null | grep -q backupd; then
-    echo "⚠️   Time Machine is holding the disk. Stopping backup..."
-    tmutil stopbackup 2>/dev/null || true
-    sleep 3
-    _try_eject || {
-      echo ""
-      echo "❌  Could not eject automatically."
-      _show_lsof
-      echo "    Close those processes and eject manually from Finder."
-      exit 1
-    }
-  else
-    echo ""
-    echo "❌  Could not eject automatically."
-    _show_lsof
+if [[ "$EJECTED" == false ]] && _holders | grep -q backupd; then
+  echo "⚠️   Time Machine is holding the disk. Stopping backup..."
+  tmutil stopbackup 2>/dev/null || true
+  sleep 3
+  _try_eject && EJECTED=true
+fi
+
+if [[ "$EJECTED" == false ]]; then
+  echo ""
+  echo "⚠️   The volume is still in use."
+  HOLDERS=$(_holders)
+  if [[ -n "$HOLDERS" ]]; then
+    echo "  Processes holding the volume open:"
+    echo "$HOLDERS" | sed 's/^/    /'
+  fi
+  echo ""
+  echo "  Force-ejecting may lose unsaved changes in those apps"
+  echo "  and unmounts every partition on ${DISK:-the disk}."
+  read -rp "  Force eject anyway? [y/N] " FORCE
+  echo ""
+  if [[ ! "$FORCE" =~ ^[Yy]$ ]]; then
+    echo "  Aborted. Drive NOT ejected."
     echo "    Close those processes and eject manually from Finder."
     exit 1
   fi
+  _force_eject || {
+    echo ""
+    echo "❌  Could not eject, even with force."
+    exit 1
+  }
 fi
 
 # ── Add alias to ~/.zshrc ────────────────────────────────────

@@ -25,12 +25,14 @@ There are no automated tests. To test, plug in a real USB drive and run the scri
 2. **Picker** — prints a numbered list with sizes; user selects one or quits.
 3. **Confirm** — asks whether to clean dot files; if no, offers eject-only.
 4. **Clean** (optional) — `find … -delete` for user-owned `.DS_Store` / `._*` only. Root-owned `.Spotlight-V100`, `.Trashes`, `.fseventsd` are intentionally left in place (removing them needs `sudo`).
-5. **Eject** — tries `diskutil eject`, falls back to `hdiutil detach`.
+5. **Eject** — `DISK` (whole-disk node from `Part of Whole`) is resolved up front. `_try_eject` is non-forcing: `diskutil eject <mountpoint>` → `diskutil unmountDisk` + `diskutil eject` on `DISK`. If that fails and `backupd` holds the volume, runs `tmutil stopbackup` and retries once. If still busy, lists holders (`_holders`) and asks before `_force_eject` (`unmountDisk force` + eject → `hdiutil detach -force`); declining exits 1.
 6. **Alias** — appends `alias usb_eject='bash <abs-path>'` to `~/.zshrc` if not already present.
 
 ## Key behaviors to preserve
 
 - `set -euo pipefail` is intentional; errors in sub-commands that should be non-fatal use `|| true` or `2>/dev/null`.
 - Don't reintroduce `sudo` (including `mdutil`); the user chose to skip root-owned folders rather than be prompted for a password.
+- Never force-unmount without the confirmation prompt — forcing can lose unsaved data and unmounts every partition on the disk.
+- Use `lsof <mountpoint>`, not `lsof +D` (recursive, takes seconds on large drives). `lsof` exits 1 when nothing is open, so guard it under `pipefail`.
 - The eject-without-cleaning path (step 3 "no → eject only") was added deliberately — don't collapse the two prompts into one.
 - USB detection relies on `diskutil info` output parsing (not `diskutil list`); keep the `awk` field separator `': +'` when editing those lines.

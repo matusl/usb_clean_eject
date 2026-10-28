@@ -11,7 +11,7 @@ A macOS shell script that removes Apple junk files from a USB drive and safely e
   - `._*` — AppleDouble resource forks
   - Root-owned system folders (`.Spotlight-V100`, `.Trashes`, `.fseventsd`) are left in place
 - Handles Time Machine volumes — stops the backup automatically if it's blocking eject
-- Safely ejects the drive (falls back to `hdiutil detach` if needed)
+- Safely ejects the drive; if something still has files open, shows which apps and asks before force-ejecting
 - Adds a `usb_eject` alias to `~/.zshrc` on first run
 
 ## Requirements
