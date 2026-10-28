@@ -6,13 +6,10 @@ A macOS shell script that removes Apple junk files from a USB drive and safely e
 
 - Auto-detects all mounted external USB drives
 - Auto-selects the drive if only one is plugged in; numbered picker otherwise
-- Optionally removes Apple dot files:
+- Optionally removes Apple dot files (no password needed):
   - `.DS_Store` — Finder folder metadata
   - `._*` — AppleDouble resource forks
-  - `.Spotlight-V100` — Spotlight index
-  - `.Trashes` — macOS Trash folder
-  - `.fseventsd` — File system events log
-- Disables Spotlight indexing before deletion to release daemon locks
+  - Root-owned system folders (`.Spotlight-V100`, `.Trashes`, `.fseventsd`) are left in place
 - Handles Time Machine volumes — stops the backup automatically if it's blocking eject
 - Safely ejects the drive (falls back to `hdiutil detach` if needed)
 - Adds a `usb_eject` alias to `~/.zshrc` on first run
@@ -21,7 +18,6 @@ A macOS shell script that removes Apple junk files from a USB drive and safely e
 
 - macOS
 - `bash` 3.2+ (pre-installed on macOS)
-- `sudo` access (needed for protected system folders)
 
 ## Installation
 
@@ -58,9 +54,6 @@ usb_eject
   ✔  Selected: /Volumes/SANDISK
 
   🗑️   Delete Apple dot files before ejecting? [y/N] y
-
-⏸️   Suspending Spotlight on /Volumes/SANDISK ...
-  ✔  Spotlight disabled.
 
 🗑️   Removing Apple dot files from /Volumes/SANDISK ...
 ✅  Apple dot files removed.
